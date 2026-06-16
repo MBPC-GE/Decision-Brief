@@ -39,7 +39,7 @@
         .btn-github.config:hover { background: #7c3aed; border-color: #7c3aed; }
         .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content { background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 600px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto; }
+        .modal-content { background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 900px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .modal-title { font-size: 20px; font-weight: 700; color: #1e293b; }
         .close-btn { background: none; border: none; font-size: 24px; color: #64748b; cursor: pointer; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
@@ -167,6 +167,7 @@
         .section-disabled textarea, .section-disabled input, .section-disabled select { background: #e2e8f0; cursor: not-allowed; }
         .scoring-note { font-size: 12px; color: #64748b; margin-left: 10px; font-weight: normal; background: #e2e8f0; padding: 2px 8px; border-radius: 12px; }
         .bottom-save { display: flex; justify-content: center; margin: 20px 0; }
+        .file-preview-iframe { width: 100%; height: 70vh; border: none; border-radius: 6px; background: #f1f5f9; }
         @media (max-width: 1024px) {
             .metadata { grid-template-columns: repeat(2, 1fr); }
             .options-grid { grid-template-columns: repeat(2, 1fr); }
@@ -184,6 +185,7 @@
             .dashboard-table { display: block; overflow-x: auto; }
             .document-row { flex-wrap: wrap; }
             .document-upload-area { width: 100%; justify-content: flex-start; }
+            .file-preview-iframe { height: 50vh; }
         }
         @media print {
             body { background: white; padding: 0; }
@@ -249,7 +251,7 @@
         </div>
     </div>
 
-    <!-- PDF Modal (unchanged) -->
+    <!-- PDF Modal -->
     <div id="pdfModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
@@ -270,6 +272,23 @@
                         <li><strong>Attach to Email</strong> - Manually attach to any email</li>
                     </ul>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Preview Modal (NEW) -->
+    <div id="filePreviewModal" class="modal">
+        <div class="modal-content" style="max-width: 95%;">
+            <div class="modal-header">
+                <div class="modal-title" id="filePreviewTitle"><i class="fas fa-file"></i> File Preview</div>
+                <button class="close-btn" onclick="closeFilePreview()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:0;">
+                <iframe id="filePreviewIframe" class="file-preview-iframe" src="about:blank"></iframe>
+            </div>
+            <div class="email-actions" style="justify-content:flex-end; margin-top:10px;">
+                <button class="btn btn-primary" onclick="downloadFileFromPreview()"><i class="fas fa-download"></i> Download</button>
+                <button class="btn" onclick="closeFilePreview()">Close</button>
             </div>
         </div>
     </div>
@@ -487,6 +506,10 @@
         // File data storage for documents section
         let documentFileData = {};
 
+        // For file preview modal
+        let currentPreviewBlobUrl = null;
+        let currentPreviewFileData = null;
+
         document.addEventListener("DOMContentLoaded", function() {
             loadGithubConfig();
             loadDocumentsDatabase();
@@ -671,6 +694,7 @@
             window.addEventListener("click", e => {
                 if (e.target === document.getElementById('githubConfigModal')) closeGithubConfig();
                 if (e.target === document.getElementById('firstTimeHelpModal')) closeFirstTimeHelp();
+                if (e.target === document.getElementById('filePreviewModal')) closeFilePreview();
             });
         }
 
@@ -817,10 +841,12 @@
             checkDecisionMade();
             documentFileData = {};
             renderDocuments();
+            // Close preview if open
+            closeFilePreview();
         }
 
         // ================================
-        // DOCUMENTS SECTION (SECTION 4) – UPLOAD + RENAME + OPEN
+        // DOCUMENTS SECTION (SECTION 4) – UPLOAD + RENAME + OPEN (PREVIEW MODAL)
         // ================================
         function renderDocuments() {
             const container = document.getElementById('documentsList');
@@ -1012,6 +1038,7 @@
             }
         }
 
+        // OPEN FILE: show in preview modal
         function openFile(idx) {
             const fileKey = `doc_${idx}`;
             const fileData = documentFileData[fileKey];
@@ -1019,22 +1046,68 @@
                 showAlert('No file to open.', 'warning');
                 return;
             }
-            const dataUrl = fileData.content; // already a data URL
+            // Create a blob URL from the base64 data
+            try {
+                const base64Data = fileData.content;
+                const base64String = base64Data.split(',')[1];
+                const byteString = atob(base64String);
+                const mimeType = fileData.type || 'application/octet-stream';
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                const blob = new Blob([ab], { type: mimeType });
+                const blobUrl = URL.createObjectURL(blob);
 
-            // Try to open in new tab
-            const win = window.open(dataUrl, '_blank');
-            if (!win) {
-                // Popup blocked, fallback: download the file
+                // Store for download
+                currentPreviewBlobUrl = blobUrl;
+                currentPreviewFileData = fileData;
+
+                // Set iframe src
+                const iframe = document.getElementById('filePreviewIframe');
+                iframe.src = blobUrl;
+
+                // Set title
+                document.getElementById('filePreviewTitle').innerHTML = `<i class="fas fa-file"></i> ${escapeHtml(fileData.name)}`;
+
+                // Show modal
+                document.getElementById('filePreviewModal').style.display = 'flex';
+
+            } catch (e) {
+                console.error('Error opening file:', e);
+                showAlert('❌ Error opening file. Please try downloading instead.', 'error');
+                // Fallback: download
                 const link = document.createElement('a');
-                link.href = dataUrl;
+                link.href = fileData.content;
                 link.download = fileData.name;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                showAlert(`⬇️ Downloading ${fileData.name} (popup blocked)`, 'info');
-            } else {
-                // Successfully opened new tab
-                win.document.title = fileData.name;
+            }
+        }
+
+        function closeFilePreview() {
+            document.getElementById('filePreviewModal').style.display = 'none';
+            // Revoke blob URL to free memory
+            if (currentPreviewBlobUrl) {
+                URL.revokeObjectURL(currentPreviewBlobUrl);
+                currentPreviewBlobUrl = null;
+            }
+            // Clear iframe
+            document.getElementById('filePreviewIframe').src = 'about:blank';
+            currentPreviewFileData = null;
+        }
+
+        function downloadFileFromPreview() {
+            if (currentPreviewFileData) {
+                const link = document.createElement('a');
+                link.href = currentPreviewFileData.content;
+                link.download = currentPreviewFileData.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showAlert(`⬇️ Downloading ${currentPreviewFileData.name}`, 'info');
             }
         }
 
@@ -1204,7 +1277,7 @@
         }
 
         // ================================
-        // DIRECT OUTLOOK – opens without popup blockers
+        // DIRECT OUTLOOK
         // ================================
         function openOutlookDirect(recipientType) {
             const docId = document.getElementById("docId").textContent;
@@ -1257,21 +1330,18 @@
                 if (decisionNotes) body += `Notes: ${decisionNotes}\n\n`;
                 body += `${shareUrl}\n\nBest regards,\n${decisionOwner}`;
             } else {
-                // fallback
                 to = "";
                 subject = `Decision Brief: ${topic}`;
                 body = `Please review the Decision Brief at:\n${shareUrl}`;
             }
 
             if (!to) {
-                // If no email, show a fallback with the link (keep as minimal)
                 showFallbackLink(shareUrl);
                 return;
             }
 
             const mailtoLink =
                 `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            // Use location.href to open in same tab – most reliable for mailto
             window.location.href = mailtoLink;
         }
 
@@ -1318,7 +1388,7 @@
         }
 
         // ================================
-        // SAVE TO CLOUD AND SHARE – direct Outlook
+        // SAVE TO CLOUD AND SHARE
         // ================================
         async function saveToCloudAndShare() {
             if (!validateAllMandatoryFields()) {
@@ -1357,11 +1427,9 @@
                 const shareUrl = generateDocumentUrl(docId);
                 documentSaved = true;
 
-                // Directly open Outlook
                 const recipientType = isManagerMode ? 'requester' : 'manager';
                 openOutlookDirect(recipientType);
 
-                // Brief success toast (no modal)
                 showAlert(`✅ Document saved successfully! Outlook opened.`, 'success');
 
             } catch (error) {
@@ -1625,7 +1693,7 @@
         }
 
         // ================================
-        // DOCUMENT MANAGEMENT
+        // DOCUMENT MANAGEMENT (unchanged)
         // ================================
         function loadDocumentsDatabase() {
             try { const saved = localStorage.getItem(DOCUMENTS_DB_KEY); if (saved) documentsDatabase = JSON.parse(
@@ -2024,7 +2092,7 @@
         }
 
         // ================================
-        // SHOW ALERT (unchanged)
+        // SHOW ALERT
         // ================================
         function showAlert(message, type = 'info') {
             const alert = document.createElement('div');
@@ -2058,10 +2126,7 @@
 
         function closeFirstTimeHelp() { document.getElementById('firstTimeHelpModal').style.display = 'none'; }
 
-        // ================================
-        // INIT
-        // ================================
-        console.log('Decision Brief loaded. Section 4 upload, rename, open (with fallback) enabled. Direct Outlook on save.');
+        console.log('Decision Brief loaded. Section 4 upload, rename, and preview modal enabled. Direct Outlook on save.');
     </script>
 </body>
 </html>
