@@ -119,8 +119,9 @@
         .document-row .meta-input { flex: 1; min-width: 0; }
         .document-upload-area { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .document-upload-area .btn { padding: 4px 10px; font-size: 12px; border-radius: 6px; white-space: nowrap; }
-        .document-file-name { font-size: 11px; color: #64748b; min-width: 60px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .document-file-name.has-file { color: #10b981; font-weight: 500; }
+        .document-file-name { font-size: 11px; color: #64748b; min-width: 60px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+        .document-file-name.has-file { color: #10b981; font-weight: 500; cursor: pointer; }
+        .document-file-name.has-file:hover { text-decoration: underline; }
         .document-file-input { display: none; }
         .recommendation-box { flex: 1; display: flex; flex-direction: column; }
         .recommendation-box textarea { flex: 1; min-height: 120px; }
@@ -355,7 +356,7 @@
             <div class="options-grid" id="optionsGrid"></div>
         </div>
 
-        <!-- SECTION 4 & 5 (Section 4 updated with upload) -->
+        <!-- SECTION 4 & 5 (Section 4 updated with upload and open) -->
         <div class="section section-4-5">
             <div>
                 <div class="section-title"><span class="section-number">4</span> Supporting Documents</div>
@@ -821,7 +822,7 @@
         }
 
         // ================================
-        // DOCUMENTS SECTION (SECTION 4) – UPLOAD + RENAME
+        // DOCUMENTS SECTION (SECTION 4) – UPLOAD + RENAME + OPEN
         // ================================
         function renderDocuments() {
             const container = document.getElementById('documentsList');
@@ -844,7 +845,8 @@
                                 <div class="document-upload-area">
                                     <button class="btn btn-sm btn-info document-upload-btn" data-index="${i}"><i class="fas fa-upload"></i> Upload</button>
                                     <input type="file" class="document-file-input" data-index="${i}" accept="*/*">
-                                    <span class="document-file-name ${hasFile ? 'has-file' : ''}">${hasFile ? escapeHtml(fileName) : 'No file'}</span>
+                                    <span class="document-file-name ${hasFile ? 'has-file' : ''}" data-index="${i}">${hasFile ? escapeHtml(fileName) : 'No file'}</span>
+                                    ${hasFile ? `<button class="btn btn-sm btn-success document-open-btn" data-index="${i}" title="Open file"><i class="fas fa-eye"></i></button>` : ''}
                                     ${hasFile ? `<button class="btn btn-sm btn-danger document-remove-btn" data-index="${i}" title="Remove file"><i class="fas fa-times"></i></button>` : ''}
                                 </div>
                             </div>
@@ -875,6 +877,22 @@
                     e.preventDefault();
                     const idx = parseInt(this.dataset.index);
                     removeFile(idx);
+                });
+            });
+
+            container.querySelectorAll('.document-open-btn').forEach(btn => {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const idx = parseInt(this.dataset.index);
+                    openFile(idx);
+                });
+            });
+
+            // Click on file name also opens
+            container.querySelectorAll('.document-file-name.has-file').forEach(span => {
+                span.addEventListener('click', function(e) {
+                    const idx = parseInt(this.dataset.index);
+                    openFile(idx);
                 });
             });
 
@@ -912,38 +930,65 @@
                     content: base64,
                     displayName: file.name
                 };
-                // Update UI
-                const item = document.querySelector(`.document-item[data-doc-index="${idx}"]`);
-                if (item) {
-                    const nameSpan = item.querySelector('.document-file-name');
-                    const input = item.querySelector('.document-input');
-                    if (nameSpan) {
-                        nameSpan.textContent = file.name;
-                        nameSpan.className = 'document-file-name has-file';
-                    }
-                    if (input) {
-                        input.value = file.name;
-                    }
-                    // Add remove button if not present
-                    const uploadArea = item.querySelector('.document-upload-area');
-                    if (uploadArea && !uploadArea.querySelector('.document-remove-btn')) {
-                        const removeBtn = document.createElement('button');
-                        removeBtn.className = 'btn btn-sm btn-danger document-remove-btn';
-                        removeBtn.dataset.index = idx;
-                        removeBtn.innerHTML = '<i class="fas fa-times"></i>';
-                        removeBtn.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            removeFile(idx);
-                        });
-                        uploadArea.appendChild(removeBtn);
-                    }
-                }
+                updateDocumentItemUI(idx);
                 showAlert(`✅ File "${file.name}" uploaded successfully.`, 'success');
             };
             reader.onerror = function() {
                 showAlert('❌ Error reading file. Please try again.', 'error');
             };
             reader.readAsDataURL(file);
+        }
+
+        function updateDocumentItemUI(idx) {
+            const item = document.querySelector(`.document-item[data-doc-index="${idx}"]`);
+            if (!item) return;
+            const fileKey = `doc_${idx}`;
+            const fileData = documentFileData[fileKey];
+            const hasFile = !!fileData;
+            const nameSpan = item.querySelector('.document-file-name');
+            const input = item.querySelector('.document-input');
+            const uploadArea = item.querySelector('.document-upload-area');
+
+            if (nameSpan) {
+                nameSpan.textContent = hasFile ? fileData.name : 'No file';
+                nameSpan.className = `document-file-name ${hasFile ? 'has-file' : ''}`;
+                if (hasFile) nameSpan.dataset.index = idx;
+            }
+            if (input && hasFile) {
+                input.value = fileData.name;
+            }
+
+            // Remove existing open and remove buttons (except upload)
+            const existingOpen = uploadArea.querySelector('.document-open-btn');
+            const existingRemove = uploadArea.querySelector('.document-remove-btn');
+            if (existingOpen) existingOpen.remove();
+            if (existingRemove) existingRemove.remove();
+
+            if (hasFile) {
+                // Add open button
+                const openBtn = document.createElement('button');
+                openBtn.className = 'btn btn-sm btn-success document-open-btn';
+                openBtn.dataset.index = idx;
+                openBtn.title = 'Open file';
+                openBtn.innerHTML = '<i class="fas fa-eye"></i>';
+                openBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    openFile(idx);
+                });
+                uploadArea.appendChild(openBtn);
+
+                // Add remove button
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn btn-sm btn-danger document-remove-btn';
+                removeBtn.dataset.index = idx;
+                removeBtn.title = 'Remove file';
+                removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+                removeBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    removeFile(idx);
+                });
+                uploadArea.appendChild(removeBtn);
+            }
         }
 
         function removeFile(idx) {
@@ -957,13 +1002,42 @@
                         nameSpan.textContent = 'No file';
                         nameSpan.className = 'document-file-name';
                     }
-                    const removeBtn = item.querySelector('.document-remove-btn');
+                    const uploadArea = item.querySelector('.document-upload-area');
+                    const openBtn = uploadArea.querySelector('.document-open-btn');
+                    const removeBtn = uploadArea.querySelector('.document-remove-btn');
+                    if (openBtn) openBtn.remove();
                     if (removeBtn) removeBtn.remove();
-                    // Reset file input
                     const fileInput = document.querySelector(`.document-file-input[data-index="${idx}"]`);
                     if (fileInput) fileInput.value = '';
                 }
                 showAlert('🗑️ File removed.', 'info');
+            }
+        }
+
+        function openFile(idx) {
+            const fileKey = `doc_${idx}`;
+            const fileData = documentFileData[fileKey];
+            if (!fileData) {
+                showAlert('No file to open.', 'warning');
+                return;
+            }
+            // Create a data URL from the base64 content
+            const dataUrl = fileData.content;
+            // Open in new tab
+            const win = window.open('', '_blank');
+            if (win) {
+                win.document.write(
+                    `<iframe src="${dataUrl}" style="border:none;width:100%;height:100%;"></iframe>`);
+                win.document.title = fileData.name;
+            } else {
+                // Fallback: download
+                const link = document.createElement('a');
+                link.href = dataUrl;
+                link.download = fileData.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showAlert(`⬇️ Downloading ${fileData.name}`, 'info');
             }
         }
 
@@ -1011,24 +1085,7 @@
                             content: doc.file.content,
                             displayName: doc.file.displayName || doc.file.name
                         };
-                        // Update UI
-                        const nameSpan = items[idx].querySelector('.document-file-name');
-                        if (nameSpan) {
-                            nameSpan.textContent = doc.file.name;
-                            nameSpan.className = 'document-file-name has-file';
-                        }
-                        const uploadArea = items[idx].querySelector('.document-upload-area');
-                        if (uploadArea && !uploadArea.querySelector('.document-remove-btn')) {
-                            const removeBtn = document.createElement('button');
-                            removeBtn.className = 'btn btn-sm btn-danger document-remove-btn';
-                            removeBtn.dataset.index = idx;
-                            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
-                            removeBtn.addEventListener('click', function(e) {
-                                e.preventDefault();
-                                removeFile(idx);
-                            });
-                            uploadArea.appendChild(removeBtn);
-                        }
+                        updateDocumentItemUI(idx);
                     }
                 }
             });
@@ -2007,7 +2064,7 @@
         // ================================
         // INIT
         // ================================
-        console.log('Decision Brief loaded. Section 4 upload enabled, direct Outlook on save.');
+        console.log('Decision Brief loaded. Section 4 upload, rename, open enabled. Direct Outlook on save.');
     </script>
 </body>
 </html>
