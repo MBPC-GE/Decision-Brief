@@ -27,8 +27,6 @@
         .btn-info:hover { background: #2563eb; border-color: #2563eb; }
         .btn-warning { background: #f59e0b; color: white; border-color: #f59e0b; }
         .btn-warning:hover { background: #d97706; border-color: #d97706; }
-        .btn-email { background: #8b5cf6; color: white; border-color: #8b5cf6; }
-        .btn-email:hover { background: #7c3aed; border-color: #7c3aed; }
         .btn-danger { background: #ef4444; color: white; border-color: #ef4444; }
         .btn-danger:hover { background: #dc2626; border-color: #dc2626; }
         .btn-github { background: #333; color: white; border-color: #333; display: flex; align-items: center; gap: 8px; }
@@ -1021,23 +1019,22 @@
                 showAlert('No file to open.', 'warning');
                 return;
             }
-            // Create a data URL from the base64 content
-            const dataUrl = fileData.content;
-            // Open in new tab
-            const win = window.open('', '_blank');
-            if (win) {
-                win.document.write(
-                    `<iframe src="${dataUrl}" style="border:none;width:100%;height:100%;"></iframe>`);
-                win.document.title = fileData.name;
-            } else {
-                // Fallback: download
+            const dataUrl = fileData.content; // already a data URL
+
+            // Try to open in new tab
+            const win = window.open(dataUrl, '_blank');
+            if (!win) {
+                // Popup blocked, fallback: download the file
                 const link = document.createElement('a');
                 link.href = dataUrl;
                 link.download = fileData.name;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
-                showAlert(`⬇️ Downloading ${fileData.name}`, 'info');
+                showAlert(`⬇️ Downloading ${fileData.name} (popup blocked)`, 'info');
+            } else {
+                // Successfully opened new tab
+                win.document.title = fileData.name;
             }
         }
 
@@ -2064,7 +2061,7 @@
         // ================================
         // INIT
         // ================================
-        console.log('Decision Brief loaded. Section 4 upload, rename, open enabled. Direct Outlook on save.');
+        console.log('Decision Brief loaded. Section 4 upload, rename, open (with fallback) enabled. Direct Outlook on save.');
     </script>
 </body>
 </html>
