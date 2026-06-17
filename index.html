@@ -40,6 +40,8 @@
         .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
         .btn-version { background: #8b5cf6; color: white; border-color: #8b5cf6; }
         .btn-version:hover { background: #7c3aed; border-color: #7c3aed; }
+        .btn-unlock { background: #f59e0b; color: #1e293b; border-color: #f59e0b; padding: 4px 12px; font-size: 12px; border-radius: 6px; white-space: nowrap; }
+        .btn-unlock:hover { background: #d97706; border-color: #d97706; color: white; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
         .modal-content { background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 900px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -133,7 +135,7 @@
         .steps-table input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
         .decision-section { margin-bottom: 25px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
         .decision-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 15px; }
-        .decision-title { font-size: 16px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
+        .decision-title { font-size: 16px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .decision-date-container { display: flex; align-items: center; gap: 8px; }
         .decision-date-label { font-size: 13px; font-weight: 600; color: #475569; }
         .decision-date-input { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 13px; background: white; transition: all 0.2s ease; height: 36px; min-width: 150px; }
@@ -310,7 +312,7 @@
         </div>
     </div>
 
-    <!-- Version History Modal (FIXED) -->
+    <!-- Version History Modal -->
     <div id="versionHistoryModal" class="modal">
         <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
@@ -399,7 +401,7 @@
             </div>
         </div>
 
-        <!-- SECTION 3 – Options (all optional now) -->
+        <!-- SECTION 3 – Options (all optional) -->
         <div class="section">
             <div class="section-title">
                 <span class="section-number">3</span> Options Considered
@@ -441,10 +443,17 @@
             <div class="next-steps-first-row-warning">* First next step row is required (at least one field)</div>
         </div>
 
-        <!-- SECTION 7 -->
+        <!-- SECTION 7 (Unlock button inside) -->
         <div class="decision-section section-disabled" id="decisionSection">
             <div class="decision-header">
-                <div class="decision-title"><span class="section-number">7</span> Decision <span class="status-indicator status-pending" id="decisionStatusLabel">Awaiting Manager</span></div>
+                <div class="decision-title">
+                    <span class="section-number">7</span> Decision
+                    <span class="status-indicator status-pending" id="decisionStatusLabel">Awaiting Manager</span>
+                    <!-- Manager Unlock Button placed inside Section 7 -->
+                    <button class="btn btn-unlock" id="roleToggleBtn" onclick="toggleUserRole()" style="display:none;">
+                        <i class="fas fa-unlock-alt"></i> <span id="roleToggleLabel">Unlock Decision Section</span>
+                    </button>
+                </div>
                 <div class="decision-date-container"><div class="decision-date-label">Decision Date:</div><input type="date" class="decision-date-input" id="decisionDate" disabled></div>
             </div>
             <div class="decision-options">
@@ -541,10 +550,7 @@
         let isManagerMode = false, currentUserRole = 'requester';
         let isDocumentLoadedFromURL = false;
 
-        // File data storage for documents section
         let documentFileData = {};
-
-        // For file preview modal
         let currentPreviewBlobUrl = null;
         let currentPreviewFileData = null;
 
@@ -553,46 +559,99 @@
         let currentVersion = null;
         let currentHistory = [];
 
+        // Flag to prevent auto-load loop
+        let autoLoadAttempted = false;
+
         document.addEventListener("DOMContentLoaded", function() {
             loadGithubConfig();
             loadDocumentsDatabase();
             initializeDocument();
             setupPdfModalListeners();
-            setTimeout(() => { loadDocumentFromURL(); }, 500);
+
+            // Read role from URL param and update currentUserRole
+            const urlParams = new URLSearchParams(window.location.search);
+            const roleParam = urlParams.get('role');
+            if (roleParam === 'manager') {
+                currentUserRole = 'manager';
+                isManagerMode = true;
+                // Show the unlock button only for managers
+                document.getElementById('roleToggleBtn').style.display = 'inline-flex';
+            } else {
+                currentUserRole = 'requester';
+                isManagerMode = false;
+                // Hide the unlock button for requesters
+                document.getElementById('roleToggleBtn').style.display = 'none';
+            }
+            // Store role in localStorage for convenience
+            localStorage.setItem(USER_ROLE_KEY, currentUserRole);
+            updateUnlockButton();
             applyUserRole();
+
+            // Check for document ID in URL and auto-load
+            setTimeout(function() {
+                const docId = getDocIdFromURL();
+                if (docId && docId !== 'Draft' && !autoLoadAttempted) {
+                    autoLoadAttempted = true;
+                    showAlert('📄 Document ID detected. Loading from cloud...', 'info');
+                    if (githubConfig.token && githubConfig.gistId) {
+                        loadFromGist(githubConfig.gistId, docId);
+                    } else {
+                        showAlert('⚠️ Please set up GitHub configuration first (click the GitHub config button), then click "Load from Cloud".', 'warning');
+                    }
+                }
+            }, 800);
+
             localStorage.setItem('decision_brief_help_seen', 'true');
             renderDocuments();
-            // Update decision notes requirement on decision change
             document.querySelectorAll('input[name="decision"]').forEach(radio => {
                 radio.addEventListener('change', updateDecisionNotesRequirement);
             });
         });
 
-        function updateUIForRole() {
-            // No share button anymore
+        // ================================
+        // UNLOCK BUTTON (inside Section 7)
+        // ================================
+        function updateUnlockButton() {
+            const label = document.getElementById('roleToggleLabel');
+            const icon = document.querySelector('#roleToggleBtn i');
+            if (currentUserRole === 'manager') {
+                label.textContent = 'Lock Decision Section';
+                icon.className = 'fas fa-lock';
+            } else {
+                label.textContent = 'Unlock Decision Section';
+                icon.className = 'fas fa-unlock-alt';
+            }
         }
 
-        function detectUserRole() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const roleParam = urlParams.get('role');
-            if (roleParam === 'manager') return 'manager';
-            if (roleParam === 'requester') return 'requester';
+        function toggleUserRole() {
+            // This is only callable if the button is visible (i.e., user is manager)
+            currentUserRole = (currentUserRole === 'requester' ? 'manager' : 'requester');
+            isManagerMode = (currentUserRole === 'manager');
+            updateUnlockButton();
+            applyUserRole();
+            showAlert(`Decision section ${currentUserRole === 'manager' ? 'unlocked' : 'locked'}.`, 'info');
+        }
+
+        // ================================
+        // FIXED: getDocIdFromURL handles ? and & in hash
+        // ================================
+        function getDocIdFromURL() {
             const hash = window.location.hash;
-            const hasDocumentId = hash.includes('doc=');
-            if (hasDocumentId) {
-                const decisionSelected = document.querySelector('input[name="decision"]:checked');
-                const decisionNotes = document.getElementById("decisionNotes").value.trim();
-                return (decisionSelected && decisionNotes.length > 0) ? 'requester' : 'manager';
+            if (hash.startsWith('#doc=')) {
+                const afterDoc = hash.substring(5); // remove '#doc='
+                // Split on '?' or '&' to get just the ID
+                const id = afterDoc.split(/[?&]/)[0];
+                if (id) return id;
             }
-            return 'requester';
+            return null;
         }
 
         function applyUserRole() {
-            currentUserRole = detectUserRole();
-            localStorage.setItem(USER_ROLE_KEY, currentUserRole);
             if (currentUserRole === 'manager') enableManagerMode();
             else enableRequesterMode();
             updateDecisionNotesRequirement();
+            localStorage.setItem(USER_ROLE_KEY, currentUserRole);
+            updateUnlockButton();
         }
 
         function enableManagerMode() {
@@ -663,11 +722,10 @@
         function generateDocumentId() {
             documentUniqueId = `DB-${Date.now()}-${Math.floor(Math.random()*1000)}`;
             document.getElementById("docId").textContent = documentUniqueId;
-            // Only set baseId if it's not already set, to preserve it across loads
             if (!currentBaseId) {
                 currentBaseId = documentUniqueId;
             }
-            currentVersion = null; // will be set on first save
+            currentVersion = null;
             currentHistory = [];
             updateFooterVersion();
         }
@@ -702,7 +760,6 @@
                 });
                 const optionLetter = String.fromCharCode(65 + idx);
                 let optionLabel = `Option ${optionLetter}`;
-                // All options optional now
                 if (idx === 2) optionLabel += ' (optional)';
                 else optionLabel += ' (optional)';
                 card.innerHTML = `
@@ -761,7 +818,6 @@
                 field.addEventListener("input", () => validateMandatoryField(fieldId));
                 field.addEventListener("blur", () => validateMandatoryField(fieldId));
             });
-            // No mandatory options now
             const firstRowInputs = document.querySelectorAll(".first-step-row input");
             firstRowInputs.forEach(input => {
                 input.addEventListener("input", validateFirstStepRow);
@@ -814,7 +870,6 @@
                     }
                 }
             });
-            // Options no longer mandatory
             if (!validateFirstStepRow()) isValid = false;
             return isValid;
         }
@@ -828,7 +883,7 @@
             if (required) {
                 return decisionNotes.length > 0;
             } else {
-                return true; // optional, so always complete
+                return true;
             }
         }
 
@@ -912,7 +967,18 @@
             document.querySelectorAll(".option-card").forEach(card => calculateScore(card));
             documentSaved = false;
             isDocumentLoadedFromURL = false;
-            enableRequesterMode();
+            // Reset role to requester (or keep from URL)
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('role') === 'manager') {
+                currentUserRole = 'manager';
+                isManagerMode = true;
+            } else {
+                currentUserRole = 'requester';
+                isManagerMode = false;
+            }
+            document.getElementById('roleToggleBtn').style.display = (currentUserRole === 'manager') ? 'inline-flex' : 'none';
+            updateUnlockButton();
+            applyUserRole();
             updateStatusBadge();
             checkDecisionMade();
             documentFileData = {};
@@ -1225,7 +1291,7 @@
         }
 
         // ================================
-        // VERSIONING HELPERS (Updated to match user spec)
+        // VERSIONING HELPERS
         // ================================
         function getNextVersion(currentVersion, role) {
             if (!currentVersion) return '1.0';
@@ -1239,25 +1305,35 @@
             }
 
             if (role === 'manager') {
-                let suffixNum = 1;
+                // If the current version already has a -M suffix, increment it
                 if (suffix.startsWith('M')) {
-                    suffixNum = parseInt(suffix.substring(1), 10) + 1;
+                    let suffixNum = parseInt(suffix.substring(1), 10) + 1;
+                    return `${base}-M${suffixNum}`;
+                } else {
+                    // The current version is a requester version (no -M) -> just increment minor
+                    // e.g., 1.0 -> 1.1, 1.1 -> 1.2
+                    const baseParts = base.split('.');
+                    if (baseParts.length === 2) {
+                        const major = parseInt(baseParts[0], 10);
+                        const minor = parseInt(baseParts[1], 10) + 1;
+                        return `${major}.${minor}`;
+                    }
+                    return `${base}.1`;
                 }
-                return `${base}-M${suffixNum}`;
             } else {
-                // Requester
+                // Requester: always increment minor and drop any -M suffix
                 const baseParts = base.split('.');
                 if (baseParts.length === 2) {
                     const major = parseInt(baseParts[0], 10);
                     const minor = parseInt(baseParts[1], 10) + 1;
                     return `${major}.${minor}`;
                 }
-                return `${base}.1`; // fallback
+                return `${base}.1`;
             }
         }
 
         // ================================
-        // COLLECT / POPULATE FORM DATA (with version fields)
+        // COLLECT / POPULATE FORM DATA
         // ================================
         function collectFormData() {
             const data = {};
@@ -1318,7 +1394,6 @@
             data.UserRole = currentUserRole;
             data.IsManagerMode = isManagerMode;
 
-            // Version fields
             data.BaseId = currentBaseId || documentUniqueId;
             data.Version = currentVersion;
             data.History = currentHistory ? JSON.parse(JSON.stringify(currentHistory)) : [];
@@ -1379,23 +1454,24 @@
             } else {
                 currentHistory = [];
             }
+
+            documentSaved = true;
+            // Keep current role (already set)
             applyUserRole();
             updateStatusBadge();
             checkDecisionMade();
             validateAllMandatoryFields();
-            documentSaved = true;
             updateDecisionNotesRequirement();
         }
 
         // ================================
-        // VERSION HISTORY MODAL (FIXED)
+        // VERSION HISTORY MODAL
         // ================================
         function openVersionHistory() {
             const modal = document.getElementById('versionHistoryModal');
             const summaryContainer = document.getElementById('versionSummaryContainer');
             const historyContainer = document.getElementById('versionHistoryContainer');
 
-            // Build summary from current state
             const docId = document.getElementById('docId').textContent;
             const topic = document.getElementById('topic').value || 'Untitled';
             const requester = document.getElementById('requestedBy').value || 'Unknown';
@@ -1421,7 +1497,6 @@
             `;
             summaryContainer.innerHTML = summaryHTML;
 
-            // Build history table
             let historyHTML = `<h4 style="margin-bottom:10px;">Change History</h4>`;
             if (currentHistory && currentHistory.length > 0) {
                 historyHTML += `<table class="history-table">
@@ -1492,7 +1567,7 @@
                     return;
                 }
 
-                // ----- Versioning logic (Updated) -----
+                // ----- Versioning logic -----
                 const role = isManagerMode ? 'manager' : 'requester';
                 const isNew = !currentVersion || currentHistory.length === 0;
 
@@ -1532,7 +1607,6 @@
 
                 updateFooterVersion();
 
-                // Proceed with save
                 showAlert('💾 Saving to cloud storage...', 'info');
                 const saved = await saveToGithub(true);
                 if (!saved) throw new Error('Failed to save to cloud');
@@ -1541,8 +1615,8 @@
                 const shareUrl = generateDocumentUrl(docId);
                 documentSaved = true;
 
-                // Send email to the opposite role
                 const recipientType = isManagerMode ? 'requester' : 'manager';
+                // Open Outlook directly – no modals, no copy links
                 openOutlookDirect(recipientType);
 
                 showAlert(`✅ Document saved successfully! Version ${currentVersion}. Outlook opened.`, 'success');
@@ -1557,12 +1631,13 @@
         }
 
         // ================================
-        // EMAIL SENDING (Updated to include version)
+        // EMAIL SENDING – DIRECT OUTLOOK (no fallback, no copy modal)
         // ================================
         function openOutlookDirect(recipientType) {
             const docId = document.getElementById("docId").textContent;
             const topic = document.getElementById("topic").value || "Decision Brief";
-            const shareUrl = generateDocumentUrl(docId);
+            let shareUrl = generateDocumentUrl(docId);
+            shareUrl += (shareUrl.includes('?') ? '&' : '?') + 'role=' + recipientType;
             const versionStr = currentVersion ? ` (Version ${currentVersion})` : '';
 
             let to = '',
@@ -1570,14 +1645,13 @@
                 body = '';
 
             if (recipientType === 'manager') {
-                const managerEmail = document.getElementById("decisionOwnerEmail").value || "";
+                to = document.getElementById("decisionOwnerEmail").value || "";
                 const managerName = document.getElementById("decisionOwner").value || "Manager";
-                to = managerEmail;
                 subject = `Decision Brief for Review: ${topic}`;
                 body =
                     `Dear ${managerName},\n\nI have prepared a Decision Brief${versionStr} that requires your review and decision as per details provided in the link:\n${shareUrl}\n\nFor first time users of the tool, kindly contact @Remaz Mohamed Hassabelrasoul Abdallah to set it up for you.\n\nThank you.`;
             } else if (recipientType === 'requester') {
-                const requesterEmail = document.getElementById("requesterEmail").value || "";
+                to = document.getElementById("requesterEmail").value || "";
                 const requesterName = document.getElementById("requestedBy").value || "Requester";
                 const decisionOwner = document.getElementById("decisionOwner").value || "Manager";
                 const decision = document.querySelector('input[name="decision"]:checked');
@@ -1604,7 +1678,6 @@
                             break;
                     }
                 }
-                to = requesterEmail;
                 subject = `Decision Brief Decision: ${decisionText} - ${topic}`;
                 body =
                     `Dear ${requesterName},\n\nThe Decision Brief${versionStr} has been reviewed, and a decision has been made.\n\nDecision: ${decisionIcon} ${decisionText}\n`;
@@ -1616,60 +1689,14 @@
                 body = `Please review the Decision Brief at:\n${shareUrl}`;
             }
 
-            if (!to) {
-                showFallbackLink(shareUrl);
-                return;
-            }
-
+            // Always open the mailto link – even if `to` is empty, Outlook will open with blank recipient.
             const mailtoLink =
                 `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
             window.location.href = mailtoLink;
         }
 
-        function showFallbackLink(shareUrl) {
-            const modal = document.createElement('div');
-            modal.className = 'modal';
-            modal.style.display = 'flex';
-            modal.innerHTML = `
-                    <div class="modal-content" style="max-width:500px;">
-                        <div class="modal-header">
-                            <div class="modal-title"><i class="fas fa-envelope"></i> Document Saved</div>
-                            <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.remove()">&times;</button>
-                        </div>
-                        <div class="modal-body">
-                            <p style="margin-bottom:10px;"><strong>Document saved successfully!</strong></p>
-                            <p style="color:#64748b;font-size:13px;">Share this link with the decision maker:</p>
-                            <div class="share-link-container" style="margin:10px 0;">
-                                <input type="text" class="share-link-input" value="${shareUrl}" readonly style="font-size:12px;">
-                                <button class="copy-btn" onclick="copyFallbackLink(this)">Copy</button>
-                            </div>
-                            <div class="email-actions" style="margin-top:15px;">
-                                <button class="btn btn-primary" onclick="openOutlookDirect('manager')" style="width:100%;padding:12px;">
-                                    <i class="fas fa-envelope"></i> Open Outlook
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            document.body.appendChild(modal);
-            modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
-        }
-
-        function copyFallbackLink(btn) {
-            const input = btn.closest('.share-link-container').querySelector('.share-link-input');
-            if (input) {
-                input.select();
-                document.execCommand('copy');
-                const original = btn.textContent;
-                btn.textContent = 'Copied!';
-                btn.classList.add('copied');
-                setTimeout(() => { btn.textContent = original;
-                    btn.classList.remove('copied'); }, 2000);
-            }
-        }
-
         // ================================
-        // GITHUB GIST FUNCTIONS (unchanged)
+        // GITHUB GIST FUNCTIONS
         // ================================
         function loadGithubConfig() {
             try {
@@ -1902,17 +1929,20 @@
                         currentHistory = documentToLoad.data.History;
                     }
                     documentSaved = true;
-                    applyUserRole();
                     if (githubConfig.gistId !== gistId) { githubConfig.gistId = gistId;
                         localStorage.setItem(GITHUB_CONFIG_KEY, JSON.stringify(githubConfig)); }
                     githubConfig.lastSync = new Date().toISOString();
                     localStorage.setItem(GITHUB_CONFIG_KEY, JSON.stringify(githubConfig));
+
+                    applyUserRole();
+                    updateStatusBadge();
+                    checkDecisionMade();
+                    validateAllMandatoryFields();
+                    updateDecisionNotesRequirement();
+
                     showAlert(
                         `✅ DATA LOADED SUCCESSFULLY!\n\n📊 Loaded Decision Brief:\n• Topic: ${documentToLoad.data.Topic || 'Untitled'}\n• Document ID: ${documentToLoad.id}\n• Version: ${currentVersion}\n• User Role: ${currentUserRole}\n\n⏰ Last Saved: ${new Date(importedData.exportedAt).toLocaleString() || 'Unknown'}\n\n✅ Form data restored!`,
                         'success');
-                    updateStatusBadge();
-                    validateAllMandatoryFields();
-                    updateDecisionNotesRequirement();
                 }
             } catch (error) {
                 console.error('GitHub load error:', error);
@@ -1922,23 +1952,6 @@
                 else if (error.message.includes('404')) errorMsg += '\n\n🔗 Gist not found. Check Gist ID or save data first.';
                 else if (error.message.includes('JSON')) errorMsg += '\n\n📄 Invalid data format in Gist.';
                 showAlert(errorMsg, 'error');
-            }
-        }
-
-        function getDocIdFromURL() {
-            const hash = window.location.hash;
-            if (hash.startsWith('#doc=')) return hash.split('=')[1].split('&')[0];
-            return null;
-        }
-
-        function loadDocumentFromURL() {
-            const hash = window.location.hash;
-            if (hash.startsWith('#doc=')) {
-                const docId = getDocIdFromURL();
-                isDocumentLoadedFromURL = true;
-                applyUserRole();
-                showAlert(`📋 Document ID detected: ${docId}\n\nClick "Load from Cloud" to load this specific document.`,
-                    'info');
             }
         }
 
@@ -1955,7 +1968,7 @@
         }
 
         // ================================
-        // DOCUMENT MANAGEMENT (with version grouping)
+        // DOCUMENT MANAGEMENT
         // ================================
         function loadDocumentsDatabase() {
             try { const saved = localStorage.getItem(DOCUMENTS_DB_KEY); if (saved) documentsDatabase = JSON.parse(
@@ -2005,7 +2018,7 @@
         }
 
         // ================================
-        // DASHBOARD (grouped by baseId)
+        // DASHBOARD
         // ================================
         function openDashboard() {
             saveDocumentToDatabase();
@@ -2119,7 +2132,6 @@
                             <div class="version-tree">
                                 ${versions.map(doc => {
                                     const ver = doc.version || '1.0';
-                                    const isLatest = doc === latest;
                                     const role = doc.userRole === 'manager' ? 'Manager' : 'Requester';
                                     const date = new Date(doc.lastModified).toLocaleDateString();
                                     return `<div class="version-tree-item">
@@ -2247,7 +2259,6 @@
         function saveDashboardPassword() { /* unchanged */ }
         function exportAllDocuments() { /* unchanged */ }
         function clearAllDocuments() { /* unchanged */ }
-        function toggleUserRole() { /* unchanged */ }
 
         // ================================
         // PDF FUNCTIONS (unchanged)
@@ -2262,7 +2273,7 @@
 
         function closeFirstTimeHelp() { /* unchanged */ }
 
-        console.log('Decision Brief loaded with version control and email sharing.');
+        console.log('Decision Brief with Unlock Decision Section button inside Section 7.');
     </script>
 </body>
 </html>
