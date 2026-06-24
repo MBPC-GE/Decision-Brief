@@ -172,7 +172,7 @@
         .scoring-note { font-size: 12px; color: #64748b; margin-left: 10px; font-weight: normal; background: #e2e8f0; padding: 2px 8px; border-radius: 12px; }
         .bottom-save { display: flex; justify-content: center; margin: 20px 0; }
         .file-preview-iframe { width: 100%; height: 70vh; border: none; border-radius: 6px; background: #f1f5f9; }
-        .file-preview-message { display: flex; align-items: center; justify-content: center; height: 70vh; color: #64748b; font-size: 18px; flex-direction: column; }
+        .file-preview-message { display: none; align-items: center; justify-content: center; height: 70vh; color: #64748b; font-size: 18px; flex-direction: column; }
         .file-preview-message i { font-size: 48px; margin-bottom: 16px; color: #94a3b8; }
         .version-summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
         .version-summary-item { display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding: 6px 0; }
@@ -409,7 +409,7 @@
             </div>
         </div>
 
-        <!-- SECTION 3 – Options (all optional) -->
+        <!-- SECTION 3 – Options (Option A mandatory, B & C optional) -->
         <div class="section">
             <div class="section-title">
                 <span class="section-number">3</span> Options Considered
@@ -747,6 +747,9 @@
             }
         }
 
+        // ================================
+        // CREATE OPTIONS GRID (Option A mandatory)
+        // ================================
         function createOptionsGrid() {
             const optionsGrid = document.getElementById("optionsGrid");
             const criteria = [
@@ -768,15 +771,23 @@
                 });
                 const optionLetter = String.fromCharCode(65 + idx);
                 let optionLabel = `Option ${optionLetter}`;
-                if (idx === 2) optionLabel += ' (optional)';
-                else optionLabel += ' (optional)';
+                let warningHtml = '';
+                if (idx === 0) {
+                    optionLabel += ' *';
+                    warningHtml = '<div class="option-warning">* Topic required</div>';
+                } else if (idx === 2) {
+                    optionLabel += ' (optional)';
+                } else {
+                    optionLabel += ' (optional)';
+                }
                 card.innerHTML = `
                         <div class="option-header">
                             <div class="option-name">${optionLabel}</div>
                             <div class="score-display">Score: <span class="score-value">0</span></div>
                         </div>
                         <div class="option-input">
-                            <input type="text" class="option-title" data-field="title" value="" placeholder="Topic (optional)">
+                            <input type="text" class="option-title" data-field="title" value="" placeholder="${idx === 0 ? 'Topic (Required)' : 'Topic (Optional)'}">
+                            ${warningHtml}
                         </div>
                         <div class="option-input">
                             <input type="text" class="option-description" data-field="description" value="" placeholder="Brief description (optional)">
@@ -826,6 +837,13 @@
                 field.addEventListener("input", () => validateMandatoryField(fieldId));
                 field.addEventListener("blur", () => validateMandatoryField(fieldId));
             });
+            // Listen to Option A title for validation
+            const optionATitle = document.querySelector('.option-card[data-option-index="0"] .option-title');
+            if (optionATitle) {
+                optionATitle.addEventListener('input', () => validateOptionA());
+                optionATitle.addEventListener('blur', () => validateOptionA());
+            }
+
             const firstRowInputs = document.querySelectorAll(".first-step-row input");
             firstRowInputs.forEach(input => {
                 input.addEventListener("input", validateFirstStepRow);
@@ -837,6 +855,17 @@
                 if (e.target === document.getElementById('filePreviewModal')) closeFilePreview();
                 if (e.target === document.getElementById('versionHistoryModal')) closeVersionHistory();
             });
+        }
+
+        function validateOptionA() {
+            const card = document.querySelector('.option-card[data-option-index="0"]');
+            if (!card) return;
+            const title = card.querySelector('.option-title').value.trim();
+            if (!title) {
+                card.classList.add('option-mandatory');
+            } else {
+                card.classList.remove('option-mandatory');
+            }
         }
 
         function validateMandatoryField(fieldId) {
@@ -878,6 +907,19 @@
                     }
                 }
             });
+
+            // Validate Option A
+            const optionACard = document.querySelector('.option-card[data-option-index="0"]');
+            if (optionACard) {
+                const title = optionACard.querySelector('.option-title').value.trim();
+                if (!title) {
+                    optionACard.classList.add('option-mandatory');
+                    isValid = false;
+                } else {
+                    optionACard.classList.remove('option-mandatory');
+                }
+            }
+
             if (!validateFirstStepRow()) isValid = false;
             return isValid;
         }
@@ -1185,7 +1227,7 @@
         }
 
         // ================================
-        // FIXED: OPEN FILE – shows modal always, no direct download
+        // FIXED: OPEN FILE – modal always, no forced download
         // ================================
         function openFile(idx) {
             const fileKey = `doc_${idx}`;
@@ -1210,35 +1252,29 @@
                 currentPreviewBlobUrl = blobUrl;
                 currentPreviewFileData = fileData;
 
-                // Try to render in iframe
                 const iframe = document.getElementById('filePreviewIframe');
                 const messageDiv = document.getElementById('filePreviewMessage');
-                iframe.style.display = 'block';
-                messageDiv.style.display = 'none';
 
-                // Set iframe src
-                iframe.src = blobUrl;
+                // Check if file type is viewable in browser
+                const viewableTypes = ['application/pdf', 'image/', 'text/', 'video/', 'audio/'];
+                const isViewable = viewableTypes.some(type => mimeType.includes(type));
+
+                if (!isViewable) {
+                    // Show message, hide iframe
+                    iframe.style.display = 'none';
+                    messageDiv.style.display = 'flex';
+                } else {
+                    // Show iframe, hide message
+                    iframe.style.display = 'block';
+                    messageDiv.style.display = 'none';
+                    iframe.src = blobUrl;
+                }
 
                 // Set title
                 document.getElementById('filePreviewTitle').innerHTML = `<i class="fas fa-file"></i> ${escapeHtml(fileData.name)}`;
 
                 // Show modal
                 document.getElementById('filePreviewModal').style.display = 'flex';
-
-                // If after 2 seconds the iframe hasn't loaded (or shows error), show message
-                setTimeout(() => {
-                    // Check if iframe loaded successfully
-                    try {
-                        // For security, we can't access iframe content if cross-origin, but we can check if it has loaded
-                        // We'll just rely on the fact that if the file is not viewable, the user will see a blank or error.
-                        // We'll add a message for unsupported types.
-                        // Simpler: we always show a message that if you can't see the file, use download.
-                        // But we can detect if the iframe has content by checking its document.
-                        // For PDFs and images, it will load.
-                        // For others, it may not.
-                        // We'll just let it be.
-                    } catch (e) {}
-                }, 3000);
 
             } catch (e) {
                 console.error('Error opening file:', e);
@@ -1281,7 +1317,7 @@
         }
 
         // ================================
-        // COLLECT / POPULATE FORM DATA (unchanged)
+        // COLLECT / POPULATE FORM DATA
         // ================================
         function collectDocumentFiles() {
             const result = [];
@@ -1566,7 +1602,7 @@
         async function saveToCloudAndShare() {
             if (!validateAllMandatoryFields()) {
                 showAlert('❌ Please fill in all required fields (marked with *) before saving.', 'error');
-                const firstMissing = document.querySelector('.mandatory-field, .next-steps-first-row-mandatory');
+                const firstMissing = document.querySelector('.mandatory-field, .option-mandatory, .next-steps-first-row-mandatory');
                 if (firstMissing) firstMissing.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }
@@ -1729,7 +1765,7 @@
         }
 
         // ================================
-        // GITHUB GIST FUNCTIONS (unchanged)
+        // GITHUB GIST FUNCTIONS
         // ================================
         function loadGithubConfig() {
             try {
@@ -1988,8 +2024,20 @@
             }
         }
 
+        function showGithubConfigModal() {
+            document.getElementById('githubConfigModal').style.display = 'flex';
+            document.getElementById('githubToken').value = githubConfig.token || '';
+            document.getElementById('gistId').value = githubConfig.gistId || '';
+            document.getElementById('syncFrequency').value = githubConfig.syncFrequency || 'manual';
+        }
+
+        function closeGithubConfig() {
+            document.getElementById('githubConfigModal').style.display = 'none';
+            document.getElementById('configStatus').style.display = 'none';
+        }
+
         // ================================
-        // DOCUMENT MANAGEMENT (dashboard)
+        // DOCUMENT MANAGEMENT
         // ================================
         function loadDocumentsDatabase() {
             try { const saved = localStorage.getItem(DOCUMENTS_DB_KEY); if (saved) documentsDatabase = JSON.parse(
@@ -2039,7 +2087,7 @@
         }
 
         // ================================
-        // DASHBOARD FUNCTIONS (simplified)
+        // DASHBOARD
         // ================================
         function openDashboard() {
             saveDocumentToDatabase();
@@ -2294,7 +2342,7 @@
 
         function closeFirstTimeHelp() { /* unchanged */ }
 
-        console.log('Decision Brief with fixed file preview (modal always opens).');
+        console.log('Decision Brief with Option A mandatory and fixed file preview.');
     </script>
 </body>
 </html>
